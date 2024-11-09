@@ -680,7 +680,7 @@ class EfficientFormerV2(nn.Module):
             return x  # If fork_feat is used, return features from multiple stages
 
         # Skip the classification head and return embeddings for RL
-        return x
+        return x.flatten(start_dim=1)
 
 
 def _cfg(url='', **kwargs):
