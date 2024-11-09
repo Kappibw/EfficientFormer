@@ -13,7 +13,7 @@ import itertools
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.layers import DropPath, trunc_normal_
 from timm.models.registry import register_model
-from timm.models.layers.helpers import to_2tuple
+from timm.models.layers import to_2tuple
 
 EfficientFormer_width = {
     'L': [40, 80, 192, 384],  # 26m 83.3% 6attn
@@ -106,6 +106,8 @@ class Attention4D(torch.nn.Module):
         self.proj = nn.Sequential(act_layer(),
                                   nn.Conv2d(self.dh, dim, 1),
                                   nn.BatchNorm2d(dim), )
+        
+        self.attention_map  = None
 
         points = list(itertools.product(range(self.resolution), range(self.resolution)))
         N = len(points)
@@ -151,6 +153,9 @@ class Attention4D(torch.nn.Module):
         attn = self.talking_head1(attn)
         attn = attn.softmax(dim=-1)
         attn = self.talking_head2(attn)
+
+        # Save the attention map for visualization
+        self.attention_map = attn.detach().cpu()  # Shape: (B, num_heads, H*W, H*W)
 
         x = (attn @ v)
 
@@ -449,6 +454,15 @@ class FFN(nn.Module):
         else:
             x = x + self.drop_path(self.mlp(x))
         return x
+    
+
+class GoalEmbedding(nn.Module):
+    def __init__(self, input_dim=3, embed_dim=3):
+        super(GoalEmbedding, self).__init__()
+        self.fc = nn.Linear(input_dim, embed_dim)
+
+    def forward(self, goal):
+        return self.fc(goal)  # Shape: (batch_size, embed_dim)
 
 
 def eformer_block(dim, index, layers,
@@ -511,6 +525,8 @@ class EfficientFormerV2(nn.Module):
         self.fork_feat = fork_feat
 
         self.patch_embed = stem(3, embed_dims[0], act_layer=act_layer)
+
+        self.goal_embedding = GoalEmbedding(input_dim=3, embed_dim=embed_dims[0])
 
         network = []
         for i in range(len(layers)):
@@ -575,6 +591,7 @@ class EfficientFormerV2(nn.Module):
         if self.fork_feat and (
                 self.init_cfg is not None or pretrained is not None):
             self.init_weights()
+            
 
     # init for classification
     def cls_init_weights(self, m):
@@ -643,6 +660,27 @@ class EfficientFormerV2(nn.Module):
             cls_out = self.head(x.flatten(2).mean(-1))
         # for image classification
         return cls_out
+    
+    def forward_omnidir(self, img, goal):
+        x = self.patch_embed(img) # Initial patch embedding, shape: (batch_size, num_patches, embed_dim)
+
+        # Embed the goal and reshape to match the sequence dimension of x
+        goal_embedding = self.goal_embedding(goal)  # Shape: (batch_size, embed_dim)
+
+        # Reshape to match (batch_size, channels, height, width) for broadcasting
+        goal_embedding = goal_embedding.view(goal_embedding.size(0), goal_embedding.size(1), 1, 1)
+        
+        # Add the goal embedding as an offset across each spatial location
+        x = x + goal_embedding  # Broadcasting to (batch_size, channels, height, width)
+
+        # Forward pass through EfficientFormer layers
+        x = self.forward_tokens(x)
+
+        if self.fork_feat:
+            return x  # If fork_feat is used, return features from multiple stages
+
+        # Skip the classification head and return embeddings for RL
+        return x
 
 
 def _cfg(url='', **kwargs):
