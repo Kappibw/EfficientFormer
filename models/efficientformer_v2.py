@@ -667,6 +667,8 @@ class EfficientFormerV2(nn.Module):
         # Embed the goal and reshape to match the sequence dimension of x
         goal_embedding = self.goal_embedding(goal)  # Shape: (batch_size, embed_dim)
 
+        # TODO(kappi): Embed the goal as the cls token.
+
         # Reshape to match (batch_size, channels, height, width) for broadcasting
         goal_embedding = goal_embedding.view(goal_embedding.size(0), goal_embedding.size(1), 1, 1)
         
