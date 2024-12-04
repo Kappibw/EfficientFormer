@@ -155,7 +155,7 @@ class Attention4D(torch.nn.Module):
         attn = self.talking_head2(attn)
 
         # Save the attention map for visualization
-        self.attention_map = attn.detach().cpu()  # Shape: (B, num_heads, H*W, H*W)
+        # self.attention_map = attn.detach().cpu()  # Shape: (B, num_heads, H*W, H*W)
 
         x = (attn @ v)
 
@@ -680,9 +680,15 @@ class EfficientFormerV2(nn.Module):
 
         if self.fork_feat:
             return x  # If fork_feat is used, return features from multiple stages
-
-        # Skip the classification head and return embeddings for RL
-        return x.flatten(start_dim=1)
+        
+        if self.dist:
+            cls_out = self.head(x.flatten(2).mean(-1)), self.dist_head(x.flatten(2).mean(-1))
+            if not self.training:
+                cls_out = (cls_out[0] + cls_out[1]) / 2
+        else:
+            cls_out = self.head(x.flatten(2).mean(-1))
+        # for image classification
+        return cls_out
 
 
 def _cfg(url='', **kwargs):
