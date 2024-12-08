@@ -132,7 +132,7 @@ class Attention4D(torch.nn.Module):
         else:
             self.ab = self.attention_biases[:, self.attention_bias_idxs]
 
-    def forward(self, x):  # x (B,N,C)
+    def forward(self, x, vizualize_attention=False):  # x (B,N,C)
         B, C, H, W = x.shape
         if self.stride_conv is not None:
             x = self.stride_conv(x)
@@ -155,7 +155,8 @@ class Attention4D(torch.nn.Module):
         attn = self.talking_head2(attn)
 
         # Save the attention map for visualization
-        # self.attention_map = attn.detach().cpu()  # Shape: (B, num_heads, H*W, H*W)
+        if vizualize_attention:
+            self.attention_map = attn.detach().cpu()  # Shape: (B, num_heads, H*W, H*W)
 
         x = (attn @ v)
 
